@@ -5,6 +5,114 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Our Story — Together</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- ════════════════════════════════════════════
+     🔥 FIREBASE CONFIG — REPLACE THESE VALUES
+     Step-by-step instructions are at the bottom
+     of this file in a comment block.
+     ════════════════════════════════════════════ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+  // ▼▼▼ PASTE YOUR FIREBASE CONFIG HERE ▼▼▼
+  const firebaseConfig = {
+  apiKey: "AIzaSyABh63L1RGlFQGC94WlrOtJiVaG-xw8t54",
+  authDomain: "love-of-my-life-eb2ce.firebaseapp.com",
+  projectId: "love-of-my-life-eb2ce",
+  storageBucket: "love-of-my-life-eb2ce.firebasestorage.app",
+  messagingSenderId: "658711754463",
+  appId: "1:658711754463:web:33e86286b74b2f50a31b6a",
+  measurementId: "G-5F2HFXTE95"
+  };
+  // ▲▲▲ PASTE YOUR FIREBASE CONFIG HERE ▲▲▲
+
+  const app  = initializeApp(firebaseConfig);
+  const db   = getFirestore(app);
+  const storage = getStorage(app);
+
+  // ── helpers ──
+  async function uploadImage(base64, path) {
+    if (!base64) return null;
+    const r = ref(storage, path);
+    await uploadString(r, base64, 'data_url');
+    return await getDownloadURL(r);
+  }
+  async function deleteImage(path) {
+    try { await deleteObject(ref(storage, path)); } catch {}
+  }
+
+  // ══════════════ ADVENTURES ══════════════
+  window.fbSaveAdventure = async (data, base64Image) => {
+    let imageUrl = null, imagePath = null;
+    if (base64Image) {
+      imagePath = 'adventures/' + Date.now() + '.jpg';
+      imageUrl  = await uploadImage(base64Image, imagePath);
+    }
+    const docRef = await addDoc(collection(db, 'adventures'), {
+      ...data, imageUrl, imagePath, createdAt: Date.now()
+    });
+    return docRef.id;
+  };
+  window.fbDeleteAdventure = async (id, imagePath) => {
+    await deleteDoc(doc(db, 'adventures', id));
+    if (imagePath) await deleteImage(imagePath);
+  };
+  window.fbListenAdventures = (cb) => {
+    const q = query(collection(db, 'adventures'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snap => {
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  };
+
+  // ══════════════ GALLERY ══════════════
+  window.fbSaveGalleryItem = async (base64, name) => {
+    const imagePath = 'gallery/' + Date.now() + '_' + name;
+    const imageUrl  = await uploadImage(base64, imagePath);
+    const docRef    = await addDoc(collection(db, 'gallery'), { name, imageUrl, imagePath, createdAt: Date.now() });
+    return docRef.id;
+  };
+  window.fbDeleteGalleryItem = async (id, imagePath) => {
+    await deleteDoc(doc(db, 'gallery', id));
+    if (imagePath) await deleteImage(imagePath);
+  };
+  window.fbListenGallery = (cb) => {
+    const q = query(collection(db, 'gallery'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snap => {
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  };
+
+  // ══════════════ LOVE NOTES ══════════════
+  window.fbSaveNote = async (note) => {
+    const docRef = await addDoc(collection(db, 'notes'), { ...note, createdAt: Date.now() });
+    return docRef.id;
+  };
+  window.fbDeleteNote = async (id) => {
+    await deleteDoc(doc(db, 'notes', id));
+  };
+  window.fbListenNotes = (cb) => {
+    const q = query(collection(db, 'notes'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, snap => {
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+  };
+
+  // ══════════════ SETTINGS (start date) ══════════════
+  window.fbGetStartDate = async () => {
+    const snap = await getDoc(doc(db, 'settings', 'main'));
+    return snap.exists() ? snap.data().startDate : null;
+  };
+  window.fbSetStartDate = async (date) => {
+    await setDoc(doc(db, 'settings', 'main'), { startDate: date }, { merge: true });
+  };
+
+  // Signal that Firebase is ready
+  window.firebaseReady = true;
+  document.dispatchEvent(new Event('firebaseReady'));
+</script>
+
 <style>
   :root {
     --rose: #C9796A;
@@ -31,6 +139,45 @@
     overflow-x: hidden;
   }
 
+  /* ── LOADING OVERLAY ── */
+  #loading-overlay {
+    position: fixed; inset: 0;
+    background: var(--cream);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 9999;
+    gap: 1rem;
+    transition: opacity 0.5s;
+  }
+  #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .loading-heart {
+    font-size: 2.5rem;
+    animation: pulse 1.2s ease-in-out infinite;
+    color: var(--rose);
+  }
+  .loading-text {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.2rem;
+    color: var(--text-mid);
+    font-style: italic;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.6; }
+    50% { transform: scale(1.2); opacity: 1; }
+  }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%);
+    background: var(--rose-deep); color: white;
+    padding: 10px 22px; border-radius: 50px;
+    font-size: 0.85rem; font-weight: 500;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 500; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+
   /* ── NAV ── */
   nav {
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
@@ -43,225 +190,135 @@
   }
   .nav-brand {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 1.5rem;
-    font-weight: 400;
-    color: var(--rose-deep);
-    letter-spacing: 0.04em;
-    cursor: pointer;
+    font-size: 1.5rem; font-weight: 400;
+    color: var(--rose-deep); letter-spacing: 0.04em; cursor: pointer;
   }
   .nav-brand span { color: var(--gold); }
   .nav-links { display: flex; gap: 2rem; }
   .nav-links a {
-    font-size: 0.8rem;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-mid);
-    text-decoration: none;
-    cursor: pointer;
-    transition: color 0.2s;
-    padding: 4px 0;
-    border-bottom: 1.5px solid transparent;
+    font-size: 0.8rem; font-weight: 500;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-mid); text-decoration: none;
+    cursor: pointer; transition: color 0.2s;
+    padding: 4px 0; border-bottom: 1.5px solid transparent;
   }
   .nav-links a:hover, .nav-links a.active {
-    color: var(--rose);
-    border-bottom-color: var(--rose);
+    color: var(--rose); border-bottom-color: var(--rose);
   }
-  .nav-heart {
-    font-size: 1.1rem; color: var(--rose);
-    animation: pulse 2.5s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.15); }
-  }
+  .nav-heart { font-size: 1.1rem; color: var(--rose); animation: pulse 2.5s ease-in-out infinite; }
 
   /* ── PAGES ── */
   .page { display: none; padding-top: 64px; min-height: 100vh; }
   .page.active { display: block; }
 
-  /* ── HOME PAGE ── */
+  /* ── HOME ── */
   .hero {
     min-height: calc(100vh - 64px);
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    position: relative;
-    overflow: hidden;
+    display: grid; grid-template-columns: 1fr 1fr;
+    position: relative; overflow: hidden;
   }
   .hero-left {
     background: var(--rose-light);
     display: flex; flex-direction: column;
     justify-content: center; align-items: flex-start;
-    padding: 6rem 4rem 6rem 5rem;
-    position: relative;
+    padding: 6rem 4rem 6rem 5rem; position: relative;
   }
   .hero-left::after {
-    content: '';
-    position: absolute; right: -40px; top: 0; bottom: 0;
-    width: 80px;
-    background: var(--rose-light);
-    clip-path: polygon(0 0, 0% 100%, 100% 100%);
-    z-index: 2;
+    content: ''; position: absolute; right: -40px; top: 0; bottom: 0;
+    width: 80px; background: var(--rose-light);
+    clip-path: polygon(0 0, 0% 100%, 100% 100%); z-index: 2;
   }
   .hero-eyebrow {
-    font-size: 0.7rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--rose);
-    font-weight: 500;
-    margin-bottom: 1rem;
+    font-size: 0.7rem; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--rose);
+    font-weight: 500; margin-bottom: 1rem;
   }
   .hero-title {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 4.5rem;
-    font-weight: 300;
-    line-height: 1.1;
-    color: var(--rose-deep);
-    margin-bottom: 1.5rem;
+    font-size: 4.5rem; font-weight: 300;
+    line-height: 1.1; color: var(--rose-deep); margin-bottom: 1.5rem;
   }
-  .hero-title em {
-    font-style: italic;
-    color: var(--rose);
-  }
+  .hero-title em { font-style: italic; color: var(--rose); }
   .hero-subtitle {
-    font-size: 1rem;
-    color: var(--text-mid);
-    line-height: 1.7;
-    max-width: 360px;
-    margin-bottom: 2.5rem;
-    font-weight: 300;
+    font-size: 1rem; color: var(--text-mid);
+    line-height: 1.7; max-width: 360px;
+    margin-bottom: 2.5rem; font-weight: 300;
   }
   .hero-date-badge {
     display: inline-flex; align-items: center; gap: 10px;
-    background: var(--warm-white);
-    border: 1px solid var(--sand-dark);
-    border-radius: 50px;
-    padding: 10px 20px;
-    font-size: 0.85rem;
-    color: var(--text-mid);
+    background: var(--warm-white); border: 1px solid var(--sand-dark);
+    border-radius: 50px; padding: 10px 20px;
+    font-size: 0.85rem; color: var(--text-mid);
   }
   .hero-date-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rose); }
-
   .hero-right {
     background: var(--warm-white);
     display: flex; flex-direction: column;
     justify-content: center; align-items: center;
     padding: 4rem 3rem 4rem 5rem;
-    position: relative;
   }
-
   .stats-grid {
     display: grid; grid-template-columns: 1fr 1fr;
-    gap: 1.5rem; width: 100%; max-width: 400px;
-    margin-bottom: 3rem;
+    gap: 1.5rem; width: 100%; max-width: 400px; margin-bottom: 3rem;
   }
   .stat-card {
-    background: var(--cream);
-    border: 1px solid var(--sand);
-    border-radius: 16px;
-    padding: 1.5rem;
-    text-align: center;
+    background: var(--cream); border: 1px solid var(--sand);
+    border-radius: 16px; padding: 1.5rem; text-align: center;
   }
   .stat-number {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 2.8rem;
-    font-weight: 300;
-    color: var(--rose);
-    line-height: 1;
-    margin-bottom: 0.3rem;
+    font-size: 2.8rem; font-weight: 300;
+    color: var(--rose); line-height: 1; margin-bottom: 0.3rem;
   }
   .stat-label {
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--text-light);
-    font-weight: 500;
+    font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--text-light); font-weight: 500;
   }
-
   .quote-block {
-    background: var(--gold-light);
-    border-left: 3px solid var(--gold);
-    border-radius: 0 12px 12px 0;
-    padding: 1.5rem 2rem;
-    max-width: 400px;
+    background: var(--gold-light); border-left: 3px solid var(--gold);
+    border-radius: 0 12px 12px 0; padding: 1.5rem 2rem; max-width: 400px;
   }
   .quote-text {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 1.35rem;
-    font-style: italic;
-    color: var(--rose-deep);
-    line-height: 1.6;
-    margin-bottom: 0.5rem;
+    font-size: 1.35rem; font-style: italic;
+    color: var(--rose-deep); line-height: 1.6; margin-bottom: 0.5rem;
   }
-  .quote-attr {
-    font-size: 0.78rem;
-    color: var(--text-light);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
+  .quote-attr { font-size: 0.78rem; color: var(--text-light); letter-spacing: 0.08em; text-transform: uppercase; }
 
-  /* ── OUR STORY PAGE ── */
+  /* ── PAGE HEADER ── */
   .page-header {
-    background: var(--rose-light);
-    padding: 5rem 0 4rem;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
+    background: var(--rose-light); padding: 5rem 0 4rem;
+    text-align: center; position: relative; overflow: hidden;
   }
   .page-header::before {
-    content: '❤';
-    position: absolute;
-    font-size: 18rem;
-    opacity: 0.05;
-    top: -4rem; left: 50%;
-    transform: translateX(-50%);
-    pointer-events: none;
+    content: '❤'; position: absolute;
+    font-size: 18rem; opacity: 0.05;
+    top: -4rem; left: 50%; transform: translateX(-50%); pointer-events: none;
   }
   .page-header-eyebrow {
-    font-size: 0.7rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--rose);
-    font-weight: 500;
-    margin-bottom: 0.8rem;
+    font-size: 0.7rem; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--rose); font-weight: 500; margin-bottom: 0.8rem;
   }
   .page-header h1 {
     font-family: 'Cormorant Garamond', serif;
-    font-size: 3.5rem;
-    font-weight: 300;
-    color: var(--rose-deep);
-    margin-bottom: 1rem;
+    font-size: 3.5rem; font-weight: 300; color: var(--rose-deep); margin-bottom: 1rem;
   }
   .page-header p {
-    color: var(--text-mid);
-    font-size: 1rem;
-    font-weight: 300;
-    max-width: 480px;
-    margin: 0 auto;
-    line-height: 1.7;
+    color: var(--text-mid); font-size: 1rem; font-weight: 300;
+    max-width: 480px; margin: 0 auto; line-height: 1.7;
   }
 
-  .timeline-section {
-    max-width: 800px;
-    margin: 5rem auto;
-    padding: 0 2rem;
-  }
-  .timeline {
-    position: relative;
-    padding-left: 3rem;
-  }
+  /* ── STORY TIMELINE ── */
+  .timeline-section { max-width: 800px; margin: 5rem auto; padding: 0 2rem; }
+  .timeline { position: relative; padding-left: 3rem; }
   .timeline::before {
-    content: '';
-    position: absolute;
-    left: 12px; top: 0; bottom: 0;
-    width: 1px;
+    content: ''; position: absolute;
+    left: 12px; top: 0; bottom: 0; width: 1px;
     background: linear-gradient(to bottom, transparent, var(--sand-dark) 10%, var(--sand-dark) 90%, transparent);
   }
   .timeline-item {
-    position: relative;
-    margin-bottom: 3.5rem;
-    opacity: 0;
-    transform: translateX(-20px);
+    position: relative; margin-bottom: 3.5rem;
+    opacity: 0; transform: translateX(-20px);
     animation: fadeSlideIn 0.6s ease forwards;
   }
   .timeline-item:nth-child(1) { animation-delay: 0.1s; }
@@ -269,366 +326,159 @@
   .timeline-item:nth-child(3) { animation-delay: 0.3s; }
   .timeline-item:nth-child(4) { animation-delay: 0.4s; }
   .timeline-item:nth-child(5) { animation-delay: 0.5s; }
-  @keyframes fadeSlideIn {
-    to { opacity: 1; transform: translateX(0); }
-  }
+  @keyframes fadeSlideIn { to { opacity: 1; transform: translateX(0); } }
   .timeline-dot {
-    position: absolute;
-    left: -2.7rem;
-    top: 4px;
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    background: var(--rose-light);
-    border: 2px solid var(--rose);
+    position: absolute; left: -2.7rem; top: 4px;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--rose-light); border: 2px solid var(--rose);
     display: flex; align-items: center; justify-content: center;
   }
-  .timeline-dot-inner {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--rose);
-  }
-  .timeline-date {
-    font-size: 0.7rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--rose);
-    font-weight: 500;
-    margin-bottom: 0.4rem;
-  }
-  .timeline-title {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1.6rem;
-    font-weight: 400;
-    color: var(--rose-deep);
-    margin-bottom: 0.6rem;
-  }
-  .timeline-body {
-    color: var(--text-mid);
-    font-size: 0.95rem;
-    line-height: 1.75;
-    font-weight: 300;
-    max-width: 580px;
-  }
-  .timeline-emoji {
-    font-size: 1.3rem;
-    margin-bottom: 0.5rem;
-    display: block;
-  }
+  .timeline-dot-inner { width: 8px; height: 8px; border-radius: 50%; background: var(--rose); }
+  .timeline-date { font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--rose); font-weight: 500; margin-bottom: 0.4rem; }
+  .timeline-title { font-family: 'Cormorant Garamond', serif; font-size: 1.6rem; font-weight: 400; color: var(--rose-deep); margin-bottom: 0.6rem; }
+  .timeline-body { color: var(--text-mid); font-size: 0.95rem; line-height: 1.75; font-weight: 300; max-width: 580px; }
+  .timeline-emoji { font-size: 1.3rem; margin-bottom: 0.5rem; display: block; }
 
-  /* ── ADVENTURES PAGE ── */
-  .adventures-grid {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 4rem 2rem;
-  }
-  .adventures-intro {
-    text-align: center;
-    margin-bottom: 3rem;
-  }
-  .adventures-intro p {
-    color: var(--text-mid);
-    font-size: 1rem;
-    font-weight: 300;
-    line-height: 1.7;
-    max-width: 500px;
-    margin: 0 auto;
-  }
-
+  /* ── ADVENTURES ── */
+  .adventures-grid { max-width: 1100px; margin: 0 auto; padding: 4rem 2rem; }
   .add-adventure-btn {
     display: inline-flex; align-items: center; gap: 10px;
-    background: var(--rose);
-    color: white;
-    border: none;
-    border-radius: 50px;
-    padding: 14px 28px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-    transition: background 0.2s, transform 0.15s;
-    margin-bottom: 3rem;
+    background: var(--rose); color: white; border: none;
+    border-radius: 50px; padding: 14px 28px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.85rem;
+    font-weight: 500; letter-spacing: 0.08em;
+    cursor: pointer; transition: background 0.2s, transform 0.15s; margin-bottom: 3rem;
   }
-  .add-adventure-btn:hover {
-    background: var(--rose-deep);
-    transform: translateY(-2px);
-  }
-
-  .cards-masonry {
-    columns: 3;
-    column-gap: 1.5rem;
-  }
+  .add-adventure-btn:hover { background: var(--rose-deep); transform: translateY(-2px); }
+  .cards-masonry { columns: 3; column-gap: 1.5rem; }
   @media (max-width: 900px) { .cards-masonry { columns: 2; } }
   @media (max-width: 600px) { .cards-masonry { columns: 1; } }
-
   .adventure-card {
-    break-inside: avoid;
-    background: var(--warm-white);
-    border: 1px solid var(--sand);
-    border-radius: 20px;
-    overflow: hidden;
-    margin-bottom: 1.5rem;
+    break-inside: avoid; background: var(--warm-white);
+    border: 1px solid var(--sand); border-radius: 20px;
+    overflow: hidden; margin-bottom: 1.5rem;
     transition: transform 0.25s, box-shadow 0.25s;
   }
-  .adventure-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 40px rgba(139, 74, 62, 0.12);
-  }
-  .card-image-area {
-    width: 100%;
-    background: var(--rose-light);
-    position: relative;
-    overflow: hidden;
-  }
-  .card-image-area img {
-    width: 100%;
-    display: block;
-    object-fit: cover;
-  }
+  .adventure-card:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(139,74,62,0.12); }
+  .card-image-area { width: 100%; background: var(--rose-light); position: relative; overflow: hidden; }
+  .card-image-area img { width: 100%; display: block; object-fit: cover; }
   .card-image-placeholder {
-    width: 100%;
-    min-height: 200px;
+    width: 100%; min-height: 200px;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    gap: 8px;
-    color: var(--rose);
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: background 0.2s;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-weight: 500;
+    gap: 8px; color: var(--rose); font-size: 0.8rem;
+    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 500;
   }
-  .card-image-placeholder:hover { background: #EAC9C4; }
   .card-image-placeholder .upload-icon { font-size: 2rem; }
-  .card-image-area input[type="file"] { display: none; }
-
   .card-body { padding: 1.25rem 1.5rem 1.5rem; }
   .card-tag {
-    display: inline-block;
-    background: var(--gold-light);
-    color: var(--rose-deep);
-    font-size: 0.68rem;
-    font-weight: 500;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    border-radius: 50px;
-    padding: 4px 10px;
-    margin-bottom: 0.7rem;
+    display: inline-block; background: var(--gold-light); color: var(--rose-deep);
+    font-size: 0.68rem; font-weight: 500; letter-spacing: 0.1em;
+    text-transform: uppercase; border-radius: 50px; padding: 4px 10px; margin-bottom: 0.7rem;
   }
-  .card-title {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1.4rem;
-    font-weight: 400;
-    color: var(--rose-deep);
-    margin-bottom: 0.5rem;
-  }
-  .card-desc {
-    font-size: 0.88rem;
-    color: var(--text-mid);
-    line-height: 1.65;
-    font-weight: 300;
-    margin-bottom: 1rem;
-  }
-  .card-footer {
-    display: flex; align-items: center; justify-content: space-between;
-    border-top: 1px solid var(--sand);
-    padding-top: 0.8rem;
-  }
-  .card-date-small {
-    font-size: 0.75rem;
-    color: var(--text-light);
-    letter-spacing: 0.06em;
-  }
+  .card-title { font-family: 'Cormorant Garamond', serif; font-size: 1.4rem; font-weight: 400; color: var(--rose-deep); margin-bottom: 0.5rem; }
+  .card-desc { font-size: 0.88rem; color: var(--text-mid); line-height: 1.65; font-weight: 300; margin-bottom: 1rem; }
+  .card-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--sand); padding-top: 0.8rem; }
+  .card-date-small { font-size: 0.75rem; color: var(--text-light); letter-spacing: 0.06em; }
   .card-delete-btn {
-    background: none;
-    border: none;
-    color: var(--text-light);
-    cursor: pointer;
-    font-size: 0.75rem;
-    padding: 4px 8px;
-    border-radius: 6px;
-    transition: color 0.2s, background 0.2s;
+    background: none; border: none; color: var(--text-light);
+    cursor: pointer; font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; transition: color 0.2s, background 0.2s;
   }
   .card-delete-btn:hover { color: var(--rose); background: var(--rose-light); }
 
   /* ── MODAL ── */
   .modal-overlay {
     position: fixed; inset: 0;
-    background: rgba(44, 31, 26, 0.55);
-    backdrop-filter: blur(4px);
-    z-index: 200;
-    display: none;
-    align-items: center; justify-content: center;
-    padding: 1rem;
+    background: rgba(44,31,26,0.55); backdrop-filter: blur(4px);
+    z-index: 200; display: none;
+    align-items: center; justify-content: center; padding: 1rem;
   }
   .modal-overlay.open { display: flex; }
   .modal {
-    background: var(--warm-white);
-    border-radius: 24px;
-    padding: 2.5rem;
-    width: 100%;
-    max-width: 520px;
-    max-height: 90vh;
-    overflow-y: auto;
-    position: relative;
+    background: var(--warm-white); border-radius: 24px;
+    padding: 2.5rem; width: 100%; max-width: 520px;
+    max-height: 90vh; overflow-y: auto; position: relative;
   }
-  .modal-title {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 2rem;
-    font-weight: 300;
-    color: var(--rose-deep);
-    margin-bottom: 0.3rem;
-  }
-  .modal-subtitle {
-    font-size: 0.85rem;
-    color: var(--text-light);
-    margin-bottom: 2rem;
-    font-weight: 300;
-  }
+  .modal-title { font-family: 'Cormorant Garamond', serif; font-size: 2rem; font-weight: 300; color: var(--rose-deep); margin-bottom: 0.3rem; }
+  .modal-subtitle { font-size: 0.85rem; color: var(--text-light); margin-bottom: 2rem; font-weight: 300; }
   .form-group { margin-bottom: 1.25rem; }
-  .form-label {
-    display: block;
-    font-size: 0.72rem;
-    font-weight: 500;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-mid);
-    margin-bottom: 0.5rem;
-  }
+  .form-label { display: block; font-size: 0.72rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-mid); margin-bottom: 0.5rem; }
   .form-input, .form-textarea {
-    width: 100%;
-    background: var(--cream);
-    border: 1px solid var(--sand);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.9rem;
-    color: var(--text-dark);
-    outline: none;
-    transition: border-color 0.2s;
-    resize: vertical;
+    width: 100%; background: var(--cream); border: 1px solid var(--sand);
+    border-radius: 10px; padding: 10px 14px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+    color: var(--text-dark); outline: none; transition: border-color 0.2s; resize: vertical;
   }
-  .form-input:focus, .form-textarea:focus {
-    border-color: var(--rose);
-    background: var(--warm-white);
-  }
+  .form-input:focus, .form-textarea:focus { border-color: var(--rose); background: var(--warm-white); }
   .form-textarea { min-height: 90px; }
-
   .modal-image-upload {
-    border: 2px dashed var(--sand-dark);
-    border-radius: 12px;
-    padding: 2rem;
-    text-align: center;
-    cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
-    background: var(--cream);
-    position: relative;
+    border: 2px dashed var(--sand-dark); border-radius: 12px;
+    padding: 2rem; text-align: center; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s; background: var(--cream); display: block;
   }
   .modal-image-upload:hover { border-color: var(--rose); background: var(--rose-light); }
   .modal-image-upload input { display: none; }
   .modal-image-upload .upload-icon-big { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
   .modal-image-upload p { font-size: 0.85rem; color: var(--text-mid); font-weight: 300; }
   .modal-image-upload .upload-hint { font-size: 0.75rem; color: var(--text-light); margin-top: 0.3rem; }
-
   .modal-preview-wrap { position: relative; margin-top: 0.8rem; }
-  .modal-preview-wrap img {
-    width: 100%; border-radius: 10px;
-    display: block; max-height: 240px; object-fit: cover;
-  }
+  .modal-preview-wrap img { width: 100%; border-radius: 10px; display: block; max-height: 240px; object-fit: cover; }
   .modal-preview-clear {
     position: absolute; top: 8px; right: 8px;
     background: rgba(44,31,26,0.6); color: white;
-    border: none; border-radius: 50%;
-    width: 28px; height: 28px;
-    font-size: 1rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
+    border: none; border-radius: 50%; width: 28px; height: 28px;
+    font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
   }
-
-  .modal-actions {
-    display: flex; gap: 1rem; margin-top: 1.5rem;
-  }
+  .modal-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
   .btn-primary {
-    flex: 1; background: var(--rose); color: white;
-    border: none; border-radius: 50px;
-    padding: 12px 24px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.88rem; font-weight: 500;
+    flex: 1; background: var(--rose); color: white; border: none;
+    border-radius: 50px; padding: 12px 24px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.88rem; font-weight: 500;
     cursor: pointer; transition: background 0.2s;
   }
   .btn-primary:hover { background: var(--rose-deep); }
+  .btn-primary:disabled { background: var(--sand-dark); cursor: not-allowed; }
   .btn-secondary {
-    background: var(--cream); color: var(--text-mid);
-    border: 1px solid var(--sand);
+    background: var(--cream); color: var(--text-mid); border: 1px solid var(--sand);
     border-radius: 50px; padding: 12px 24px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.88rem; font-weight: 500;
+    font-family: 'DM Sans', sans-serif; font-size: 0.88rem; font-weight: 500;
     cursor: pointer; transition: background 0.2s;
   }
   .btn-secondary:hover { background: var(--sand); }
 
-  /* ── GALLERY PAGE ── */
-  .gallery-header { margin-bottom: 2rem; text-align: center; }
+  /* ── GALLERY ── */
   .gallery-upload-area {
-    border: 2px dashed var(--sand-dark);
-    border-radius: 20px;
-    padding: 3rem;
-    text-align: center;
-    cursor: pointer;
+    border: 2px dashed var(--sand-dark); border-radius: 20px;
+    padding: 3rem; text-align: center; cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
-    margin: 0 2rem 3rem;
-    background: var(--warm-white);
+    margin: 0 2rem 3rem; background: var(--warm-white); display: block;
   }
   .gallery-upload-area:hover { border-color: var(--rose); background: var(--rose-light); }
   .gallery-upload-area input { display: none; }
   .gallery-upload-area .u-icon { font-size: 3rem; display: block; margin-bottom: 0.8rem; }
-  .gallery-upload-area h3 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1.6rem; font-weight: 300;
-    color: var(--rose-deep); margin-bottom: 0.4rem;
-  }
+  .gallery-upload-area h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.6rem; font-weight: 300; color: var(--rose-deep); margin-bottom: 0.4rem; }
   .gallery-upload-area p { font-size: 0.9rem; color: var(--text-mid); font-weight: 300; }
   .gallery-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 1rem;
-    padding: 0 2rem 4rem;
-    max-width: 1100px;
-    margin: 0 auto;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem; padding: 0 2rem 4rem; max-width: 1100px; margin: 0 auto;
   }
   .gallery-item {
-    border-radius: 14px;
-    overflow: hidden;
-    aspect-ratio: 1;
-    position: relative;
-    cursor: pointer;
-    background: var(--rose-light);
+    border-radius: 14px; overflow: hidden; aspect-ratio: 1;
+    position: relative; cursor: pointer; background: var(--rose-light);
   }
-  .gallery-item img {
-    width: 100%; height: 100%; object-fit: cover;
-    transition: transform 0.4s;
-  }
+  .gallery-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s; }
   .gallery-item:hover img { transform: scale(1.06); }
   .gallery-item-overlay {
-    position: absolute; inset: 0;
-    background: rgba(44,31,26,0.4);
-    opacity: 0;
-    transition: opacity 0.3s;
-    display: flex; align-items: flex-end;
-    padding: 1rem;
+    position: absolute; inset: 0; background: rgba(44,31,26,0.4);
+    opacity: 0; transition: opacity 0.3s;
+    display: flex; align-items: flex-end; padding: 1rem;
   }
   .gallery-item:hover .gallery-item-overlay { opacity: 1; }
-  .gallery-item-caption {
-    color: white;
-    font-size: 0.85rem;
-    font-family: 'Cormorant Garamond', serif;
-    font-style: italic;
-  }
+  .gallery-item-caption { color: white; font-size: 0.85rem; font-family: 'Cormorant Garamond', serif; font-style: italic; }
   .gallery-delete {
     position: absolute; top: 8px; right: 8px;
     background: rgba(44,31,26,0.55); color: white;
-    border: none; border-radius: 50%;
-    width: 28px; height: 28px;
+    border: none; border-radius: 50%; width: 28px; height: 28px;
     font-size: 0.85rem; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     opacity: 0; transition: opacity 0.2s;
@@ -636,140 +486,75 @@
   .gallery-item:hover .gallery-delete { opacity: 1; }
 
   /* ── LOVE NOTES ── */
-  .notes-section {
-    max-width: 780px;
-    margin: 0 auto;
-    padding: 4rem 2rem;
-  }
-  .note-composer {
-    background: var(--warm-white);
-    border: 1px solid var(--sand);
-    border-radius: 20px;
-    padding: 2rem;
-    margin-bottom: 3rem;
-  }
-  .note-composer h3 {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1.6rem;
-    font-weight: 300;
-    color: var(--rose-deep);
-    margin-bottom: 0.25rem;
-  }
-  .note-composer p {
-    font-size: 0.85rem;
-    color: var(--text-light);
-    font-weight: 300;
-    margin-bottom: 1.5rem;
-  }
-  .note-from-row {
-    display: flex; gap: 1rem; margin-bottom: 1rem;
-  }
+  .notes-section { max-width: 780px; margin: 0 auto; padding: 4rem 2rem; }
+  .note-composer { background: var(--warm-white); border: 1px solid var(--sand); border-radius: 20px; padding: 2rem; margin-bottom: 3rem; }
+  .note-composer h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.6rem; font-weight: 300; color: var(--rose-deep); margin-bottom: 0.25rem; }
+  .note-composer p { font-size: 0.85rem; color: var(--text-light); font-weight: 300; margin-bottom: 1.5rem; }
+  .note-from-row { display: flex; gap: 1rem; margin-bottom: 1rem; }
   .note-from-btn {
-    flex: 1; padding: 10px;
-    border-radius: 10px;
-    border: 1.5px solid var(--sand);
-    background: var(--cream);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.85rem;
-    color: var(--text-mid);
-    cursor: pointer;
-    transition: all 0.2s;
-    font-weight: 400;
+    flex: 1; padding: 10px; border-radius: 10px;
+    border: 1.5px solid var(--sand); background: var(--cream);
+    font-family: 'DM Sans', sans-serif; font-size: 0.85rem;
+    color: var(--text-mid); cursor: pointer; transition: all 0.2s;
   }
-  .note-from-btn.selected {
-    border-color: var(--rose);
-    background: var(--rose-light);
-    color: var(--rose-deep);
-    font-weight: 500;
-  }
+  .note-from-btn.selected { border-color: var(--rose); background: var(--rose-light); color: var(--rose-deep); font-weight: 500; }
   .notes-list { display: flex; flex-direction: column; gap: 1.25rem; }
   .note-item {
-    background: var(--warm-white);
-    border: 1px solid var(--sand);
-    border-radius: 16px;
-    padding: 1.5rem;
-    position: relative;
-    opacity: 0;
-    animation: noteIn 0.4s ease forwards;
+    background: var(--warm-white); border: 1px solid var(--sand);
+    border-radius: 16px; padding: 1.5rem; position: relative;
+    opacity: 0; animation: noteIn 0.4s ease forwards;
   }
-  @keyframes noteIn {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .note-header {
-    display: flex; align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.8rem;
-  }
-  .note-from-tag {
-    font-size: 0.72rem;
-    font-weight: 500;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 3px 10px;
-    border-radius: 50px;
-  }
-  .note-from-tag.her {
-    background: var(--rose-light);
-    color: var(--rose-deep);
-  }
-  .note-from-tag.him {
-    background: var(--gold-light);
-    color: #7A5C20;
-  }
-  .note-timestamp {
-    font-size: 0.75rem;
-    color: var(--text-light);
-  }
-  .note-text {
-    font-family: 'Cormorant Garamond', serif;
-    font-size: 1.15rem;
-    font-weight: 400;
-    color: var(--text-dark);
-    line-height: 1.7;
-    font-style: italic;
-  }
+  @keyframes noteIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .note-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+  .note-from-tag { font-size: 0.72rem; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 10px; border-radius: 50px; }
+  .note-from-tag.her { background: var(--rose-light); color: var(--rose-deep); }
+  .note-from-tag.him { background: var(--gold-light); color: #7A5C20; }
+  .note-timestamp { font-size: 0.75rem; color: var(--text-light); }
+  .note-text { font-family: 'Cormorant Garamond', serif; font-size: 1.15rem; font-weight: 400; color: var(--text-dark); line-height: 1.7; font-style: italic; }
   .note-delete {
     position: absolute; top: 1rem; right: 1rem;
-    background: none; border: none;
-    color: var(--text-light);
-    cursor: pointer; font-size: 0.85rem;
-    padding: 4px 6px; border-radius: 6px;
+    background: none; border: none; color: var(--text-light);
+    cursor: pointer; font-size: 0.85rem; padding: 4px 6px; border-radius: 6px;
     opacity: 0; transition: opacity 0.2s, color 0.2s;
   }
   .note-item:hover .note-delete { opacity: 1; }
   .note-delete:hover { color: var(--rose); }
 
-  .empty-state {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: var(--text-light);
-  }
+  .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-light); }
   .empty-state .empty-icon { font-size: 3rem; display: block; margin-bottom: 1rem; }
   .empty-state p { font-size: 0.9rem; font-weight: 300; }
 
-  /* ── FOOTER-LIKE ── */
+  /* ── SPINNER ── */
+  .spinner {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white; border-radius: 50%;
+    animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   .floating-heart {
-    position: fixed;
-    bottom: 24px; right: 24px;
-    width: 48px; height: 48px;
-    border-radius: 50%;
-    background: var(--rose);
-    display: flex; align-items: center; justify-content: center;
-    color: white;
-    font-size: 1.2rem;
-    box-shadow: 0 4px 20px rgba(201, 121, 106, 0.45);
-    cursor: pointer;
-    animation: float 3s ease-in-out infinite;
-    z-index: 99;
+    position: fixed; bottom: 24px; right: 24px;
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--rose); display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 1.2rem;
+    box-shadow: 0 4px 20px rgba(201,121,106,0.45); cursor: pointer;
+    animation: floatHeart 3s ease-in-out infinite; z-index: 99;
+    transition: background 0.3s, transform 0.3s;
   }
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-6px); }
-  }
+  @keyframes floatHeart { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 </style>
 </head>
 <body>
+
+<!-- LOADING -->
+<div id="loading-overlay">
+  <div class="loading-heart">♥</div>
+  <p class="loading-text">Loading your story…</p>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
 
 <!-- NAV -->
 <nav>
@@ -784,45 +569,25 @@
   <div class="nav-heart">♥</div>
 </nav>
 
-<!-- ═══════════════ HOME PAGE ═══════════════ -->
+<!-- ═══════ HOME ═══════ -->
 <div id="page-home" class="page active">
   <div class="hero">
     <div class="hero-left">
       <div class="hero-eyebrow">✦ a love story</div>
-      <h1 class="hero-title">
-        Two hearts,<br>
-        <em>one beautiful</em><br>
-        adventure.
-      </h1>
-      <p class="hero-subtitle">
-        This is our little corner of the internet — a place to remember every moment, every laugh, every adventure we share together.
-      </p>
+      <h1 class="hero-title">Two hearts,<br><em>one beautiful</em><br>adventure.</h1>
+      <p class="hero-subtitle">This is our little corner of the internet — a place to remember every moment, every laugh, every adventure we share together.</p>
       <div class="hero-date-badge">
         <div class="dot"></div>
         <span id="together-since">Together since Day One ♥</span>
       </div>
     </div>
-
     <div class="hero-right">
       <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-number" id="days-count">—</div>
-          <div class="stat-label">Days Together</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number" id="adventures-count">0</div>
-          <div class="stat-label">Adventures</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number" id="notes-count">0</div>
-          <div class="stat-label">Love Notes</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-number">∞</div>
-          <div class="stat-label">Memories</div>
-        </div>
+        <div class="stat-card"><div class="stat-number" id="days-count">—</div><div class="stat-label">Days Together</div></div>
+        <div class="stat-card"><div class="stat-number" id="adventures-count">0</div><div class="stat-label">Adventures</div></div>
+        <div class="stat-card"><div class="stat-number" id="notes-count">0</div><div class="stat-label">Love Notes</div></div>
+        <div class="stat-card"><div class="stat-number">∞</div><div class="stat-label">Memories</div></div>
       </div>
-
       <div class="quote-block">
         <p class="quote-text">"I love you not only for what you are, but for what I am when I am with you."</p>
         <p class="quote-attr">— Roy Croft</p>
@@ -831,43 +596,42 @@
   </div>
 </div>
 
-<!-- ═══════════════ OUR STORY PAGE ═══════════════ -->
+<!-- ═══════ OUR STORY ═══════ -->
 <div id="page-story" class="page">
   <div class="page-header">
     <div class="page-header-eyebrow">✦ how it all began</div>
     <h1>Our Story</h1>
     <p>Every great love story starts with a moment — here's ours, one chapter at a time.</p>
   </div>
-
   <div class="timeline-section">
-    <div class="timeline" id="story-timeline">
-      <div class="timeline-item">
+    <div class="timeline">
+      <!--<div class="timeline-item">
         <div class="timeline-dot"><div class="timeline-dot-inner"></div></div>
         <div class="timeline-date">The Beginning</div>
         <span class="timeline-emoji">✨</span>
-        <h2 class="timeline-title">The First Meeting</h2>
+        <h2 class="timeline-title">The First </h2>
         <p class="timeline-body">Every story has a beginning — ours started with a moment that changed everything. The kind of meeting you don't forget, no matter how much time passes. Edit this section to tell your own version of how you two first met.</p>
-      </div>
+      </div>-->
       <div class="timeline-item">
         <div class="timeline-dot"><div class="timeline-dot-inner"></div></div>
-        <div class="timeline-date">Getting Closer</div>
+        <div class="timeline-date">The Beginning</div>
         <span class="timeline-emoji">💬</span>
         <h2 class="timeline-title">The First Conversation</h2>
-        <p class="timeline-body">Those early conversations that went on for hours, where you lost track of time and realized this person was someone truly special. Replace this with your own memory of those early days.</p>
+        <p class="timeline-body">Those early conversations that went on for hours, where we lost track of time and that smile, that you still wear till today. </p>
       </div>
       <div class="timeline-item">
         <div class="timeline-dot"><div class="timeline-dot-inner"></div></div>
         <div class="timeline-date">A Turning Point</div>
         <span class="timeline-emoji">🌅</span>
         <h2 class="timeline-title">The First Date</h2>
-        <p class="timeline-body">Nervous, excited, and hoping everything would go perfectly. That first date where everything felt new and wonderful. Write your own story of how your first date unfolded.</p>
+        <p class="timeline-body">Nervous and excited, that first date where everything felt new and wonderful. A heck of a first date. The start of our "mandatory good food" every time we would be together.</p>
       </div>
       <div class="timeline-item">
         <div class="timeline-dot"><div class="timeline-dot-inner"></div></div>
         <div class="timeline-date">Making It Official</div>
         <span class="timeline-emoji">💑</span>
         <h2 class="timeline-title">Together at Last</h2>
-        <p class="timeline-body">The moment you both knew — this was it. The beginning of something real, something beautiful. Customize this chapter with your own story of how you became official.</p>
+        <p class="timeline-body">The day it official, September 21, 2024. The first flowers i ever gave you, it was a very special day.</p>
       </div>
       <div class="timeline-item">
         <div class="timeline-dot"><div class="timeline-dot-inner"></div></div>
@@ -880,123 +644,91 @@
   </div>
 </div>
 
-<!-- ═══════════════ ADVENTURES PAGE ═══════════════ -->
+<!-- ═══════ ADVENTURES ═══════ -->
 <div id="page-adventures" class="page">
   <div class="page-header">
     <div class="page-header-eyebrow">✦ places & experiences</div>
     <h1>Our Adventures</h1>
     <p>Every trip, every outing, every spontaneous plan that became a memory worth keeping.</p>
   </div>
-
   <div class="adventures-grid">
-    <div class="adventures-intro" style="display:flex;flex-direction:column;align-items:center;gap:0.5rem">
-      <p>Add your adventures below — upload photos, add a title, tag a location, and keep your memories alive.</p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem;text-align:center;margin-bottom:1rem;">
+      <p style="color:var(--text-mid);font-size:1rem;font-weight:300;">Add your adventures below — upload photos, add a title, tag a location, and keep your memories alive.</p>
       <br>
-      <button class="add-adventure-btn" onclick="openModal()">
-        <span style="font-size:1.1rem">+</span> Add New Adventure
-      </button>
+      <button class="add-adventure-btn" onclick="openModal()"><span style="font-size:1.1rem">+</span> Add New Adventure</button>
     </div>
-
-    <div class="cards-masonry" id="adventures-container">
-      <!-- Cards rendered by JS -->
-    </div>
-
-    <div class="empty-state" id="adventures-empty">
-      <span class="empty-icon">🗺️</span>
-      <p>No adventures yet — add your first one above!</p>
-    </div>
+    <div class="cards-masonry" id="adventures-container"></div>
+    <div class="empty-state" id="adventures-empty"><span class="empty-icon">🗺️</span><p>No adventures yet — add your first one above!</p></div>
   </div>
 </div>
 
-<!-- ═══════════════ GALLERY PAGE ═══════════════ -->
+<!-- ═══════ GALLERY ═══════ -->
 <div id="page-gallery" class="page">
   <div class="page-header">
     <div class="page-header-eyebrow">✦ captured moments</div>
     <h1>Our Gallery</h1>
     <p>A collection of moments, frozen in time — just for the two of you.</p>
   </div>
-
   <div style="max-width:1100px;margin:0 auto;padding-top:3rem;">
     <label class="gallery-upload-area" for="gallery-file-input">
       <span class="u-icon">📷</span>
       <h3>Upload Your Memories</h3>
-      <p>Drop photos here or click to browse</p>
+      <p>Drop photos here or click to browse — uploads are shared instantly</p>
       <input type="file" id="gallery-file-input" accept="image/*" multiple onchange="handleGalleryUpload(event)">
     </label>
-
-    <div class="gallery-grid" id="gallery-grid">
-      <!-- Gallery items -->
-    </div>
-    <div class="empty-state" id="gallery-empty">
-      <span class="empty-icon">🖼️</span>
-      <p>Your gallery is empty — upload some photos!</p>
-    </div>
+    <div class="gallery-grid" id="gallery-grid"></div>
+    <div class="empty-state" id="gallery-empty"><span class="empty-icon">🖼️</span><p>Your gallery is empty — upload some photos!</p></div>
   </div>
 </div>
 
-<!-- ═══════════════ LOVE NOTES PAGE ═══════════════ -->
+<!-- ═══════ LOVE NOTES ═══════ -->
 <div id="page-notes" class="page">
   <div class="page-header">
     <div class="page-header-eyebrow">✦ words from the heart</div>
     <h1>Love Notes</h1>
     <p>Little messages, big feelings — leave each other notes to read anytime.</p>
   </div>
-
   <div class="notes-section">
     <div class="note-composer">
       <h3>Write a Note</h3>
-      <p>A little message for the one you love.</p>
-
+      <p>A little message for the one you love — they'll see it instantly.</p>
       <div class="note-from-row">
         <button class="note-from-btn selected" id="btn-her" onclick="selectFrom('her')">From Her 💕</button>
         <button class="note-from-btn" id="btn-him" onclick="selectFrom('him')">From Him 💙</button>
       </div>
-
       <div class="form-group">
         <textarea class="form-textarea" id="note-input" placeholder="Write something beautiful…" rows="3"></textarea>
       </div>
-
-      <button class="btn-primary" onclick="addNote()" style="width:100%">Send Note ♥</button>
+      <button class="btn-primary" id="note-send-btn" onclick="addNote()" style="width:100%">Send Note ♥</button>
     </div>
-
-    <div class="notes-list" id="notes-list">
-      <!-- Notes rendered here -->
-    </div>
-    <div class="empty-state" id="notes-empty">
-      <span class="empty-icon">💌</span>
-      <p>No notes yet — write your first one above!</p>
-    </div>
+    <div class="notes-list" id="notes-list"></div>
+    <div class="empty-state" id="notes-empty"><span class="empty-icon">💌</span><p>No notes yet — write your first one above!</p></div>
   </div>
 </div>
 
-<!-- ═══════════════ ADD ADVENTURE MODAL ═══════════════ -->
+<!-- ═══════ ADD ADVENTURE MODAL ═══════ -->
 <div class="modal-overlay" id="modal-overlay" onclick="closeModalOutside(event)">
   <div class="modal">
     <h2 class="modal-title">New Adventure ✈️</h2>
     <p class="modal-subtitle">Capture your latest experience together.</p>
-
     <div class="form-group">
       <label class="form-label">Adventure Title</label>
       <input type="text" class="form-input" id="adv-title" placeholder="e.g. Sunset Hike at Mount Apo">
     </div>
-
     <div class="form-group">
       <label class="form-label">Location / Tag</label>
       <input type="text" class="form-input" id="adv-tag" placeholder="e.g. Cebu, Philippines">
     </div>
-
     <div class="form-group">
       <label class="form-label">Date</label>
       <input type="date" class="form-input" id="adv-date">
     </div>
-
     <div class="form-group">
       <label class="form-label">Description</label>
       <textarea class="form-textarea" id="adv-desc" placeholder="Tell the story of this adventure…"></textarea>
     </div>
-
     <div class="form-group">
-      <label class="form-label">Photos</label>
+      <label class="form-label">Photo</label>
       <label class="modal-image-upload" for="adv-image-input" id="modal-upload-area">
         <span class="upload-icon-big">🏞️</span>
         <p>Click to upload a photo</p>
@@ -1008,24 +740,34 @@
         <button class="modal-preview-clear" onclick="clearModalImage()">✕</button>
       </div>
     </div>
-
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn-primary" onclick="saveAdventure()">Save Adventure ♥</button>
+      <button class="btn-primary" id="adv-save-btn" onclick="saveAdventure()">Save Adventure ♥</button>
     </div>
   </div>
 </div>
 
-<!-- Floating heart -->
 <div class="floating-heart" title="Made with love" onclick="sendHeartbeat()">♥</div>
 
 <script>
 // ── STATE ──
-let adventures = JSON.parse(localStorage.getItem('adventures') || '[]');
-let galleryItems = JSON.parse(localStorage.getItem('galleryItems') || '[]');
-let loveNotes = JSON.parse(localStorage.getItem('loveNotes') || '[]');
+let adventures = [];
+let galleryItems = [];
+let loveNotes = [];
 let currentFrom = 'her';
 let modalImageData = null;
+let startDate = null;
+
+// Unsubscribe handles for real-time listeners
+let unsubAdventures, unsubGallery, unsubNotes;
+
+// ── TOAST ──
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
 
 // ── NAV ──
 function showPage(id) {
@@ -1033,10 +775,6 @@ function showPage(id) {
   document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
   document.getElementById('page-' + id).classList.add('active');
   document.getElementById('nav-' + id).classList.add('active');
-  if (id === 'adventures') renderAdventures();
-  if (id === 'gallery') renderGallery();
-  if (id === 'notes') renderNotes();
-  if (id === 'home') updateStats();
   window.scrollTo(0, 0);
 }
 
@@ -1044,28 +782,27 @@ function showPage(id) {
 function updateStats() {
   document.getElementById('adventures-count').textContent = adventures.length;
   document.getElementById('notes-count').textContent = loveNotes.length;
-  const startDate = localStorage.getItem('startDate');
   if (startDate) {
     const diff = Math.floor((Date.now() - new Date(startDate)) / 86400000);
     document.getElementById('days-count').textContent = diff;
     const d = new Date(startDate);
     document.getElementById('together-since').textContent =
       'Together since ' + d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' ♥';
-  } else {
-    document.getElementById('days-count').textContent = '?';
   }
 }
-updateStats();
 
 // ── ADVENTURES ──
 function openModal() {
   document.getElementById('modal-overlay').classList.add('open');
-  document.getElementById('adv-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('adv-date').value = new Date().toISOString().slice(0,10);
 }
 function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
   ['adv-title','adv-tag','adv-desc'].forEach(id => document.getElementById(id).value = '');
   clearModalImage();
+  const btn = document.getElementById('adv-save-btn');
+  btn.disabled = false;
+  btn.innerHTML = 'Save Adventure ♥';
 }
 function closeModalOutside(e) {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
@@ -1089,97 +826,95 @@ function clearModalImage() {
   document.getElementById('modal-upload-area').style.display = '';
   document.getElementById('adv-image-input').value = '';
 }
-function saveAdventure() {
+async function saveAdventure() {
   const title = document.getElementById('adv-title').value.trim();
   if (!title) { alert('Please add a title!'); return; }
-  const adv = {
-    id: Date.now(),
-    title,
-    tag: document.getElementById('adv-tag').value.trim(),
-    date: document.getElementById('adv-date').value,
-    desc: document.getElementById('adv-desc').value.trim(),
-    image: modalImageData
-  };
-  adventures.unshift(adv);
-  localStorage.setItem('adventures', JSON.stringify(adventures));
-  closeModal();
-  renderAdventures();
-  updateStats();
+  const btn = document.getElementById('adv-save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Saving…';
+  try {
+    await window.fbSaveAdventure({
+      title,
+      tag:  document.getElementById('adv-tag').value.trim(),
+      date: document.getElementById('adv-date').value,
+      desc: document.getElementById('adv-desc').value.trim()
+    }, modalImageData);
+    toast('Adventure saved! 🗺️');
+    closeModal();
+  } catch(e) {
+    alert('Error saving: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = 'Save Adventure ♥';
+  }
 }
-function deleteAdventure(id) {
-  adventures = adventures.filter(a => a.id !== id);
-  localStorage.setItem('adventures', JSON.stringify(adventures));
-  renderAdventures();
-  updateStats();
+async function deleteAdventure(id, imagePath) {
+  if (!confirm('Remove this adventure?')) return;
+  await window.fbDeleteAdventure(id, imagePath);
+  toast('Adventure removed.');
 }
 function renderAdventures() {
   const container = document.getElementById('adventures-container');
   const empty = document.getElementById('adventures-empty');
-  if (!adventures.length) {
-    container.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
+  if (!adventures.length) { container.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   container.innerHTML = adventures.map(a => `
     <div class="adventure-card">
       <div class="card-image-area">
-        ${a.image
-          ? `<img src="${a.image}" alt="${a.title}" style="height:200px;">`
-          : `<div class="card-image-placeholder"><span class="upload-icon">🏞️</span><span>No photo added</span></div>`}
+        ${a.imageUrl
+          ? `<img src="${a.imageUrl}" alt="${a.title}" style="height:200px;">`
+          : `<div class="card-image-placeholder"><span class="upload-icon">🏞️</span><span>No photo</span></div>`}
       </div>
       <div class="card-body">
         ${a.tag ? `<span class="card-tag">📍 ${a.tag}</span>` : ''}
         <h3 class="card-title">${a.title}</h3>
         ${a.desc ? `<p class="card-desc">${a.desc}</p>` : ''}
         <div class="card-footer">
-          <span class="card-date-small">${a.date ? new Date(a.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : ''}</span>
-          <button class="card-delete-btn" onclick="deleteAdventure(${a.id})">✕ Remove</button>
+          <span class="card-date-small">${a.date ? new Date(a.date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) : ''}</span>
+          <button class="card-delete-btn" onclick="deleteAdventure('${a.id}','${a.imagePath||''}')">✕ Remove</button>
         </div>
       </div>
     </div>
   `).join('');
+  updateStats();
 }
 
 // ── GALLERY ──
-function handleGalleryUpload(e) {
+async function handleGalleryUpload(e) {
   const files = Array.from(e.target.files);
-  let loaded = 0;
-  files.forEach(file => {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      galleryItems.push({ id: Date.now() + loaded, src: ev.target.result, name: file.name });
-      loaded++;
-      if (loaded === files.length) {
-        localStorage.setItem('galleryItems', JSON.stringify(galleryItems));
-        renderGallery();
-      }
-    };
-    reader.readAsDataURL(file);
-  });
+  if (!files.length) return;
+  toast('Uploading ' + files.length + ' photo' + (files.length > 1 ? 's' : '') + '…');
+  for (const file of files) {
+    await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async ev => {
+        try {
+          await window.fbSaveGalleryItem(ev.target.result, file.name);
+          resolve();
+        } catch(err) { reject(err); }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  toast('Photos uploaded! 📷');
   e.target.value = '';
 }
-function deleteGalleryItem(id) {
-  galleryItems = galleryItems.filter(g => g.id !== id);
-  localStorage.setItem('galleryItems', JSON.stringify(galleryItems));
-  renderGallery();
+async function deleteGalleryItem(id, imagePath) {
+  if (!confirm('Remove this photo?')) return;
+  await window.fbDeleteGalleryItem(id, imagePath);
+  toast('Photo removed.');
 }
 function renderGallery() {
   const grid = document.getElementById('gallery-grid');
   const empty = document.getElementById('gallery-empty');
-  if (!galleryItems.length) {
-    grid.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
+  if (!galleryItems.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   grid.innerHTML = galleryItems.map(g => `
     <div class="gallery-item">
-      <img src="${g.src}" alt="${g.name}" loading="lazy">
+      <img src="${g.imageUrl}" alt="${g.name}" loading="lazy">
       <div class="gallery-item-overlay">
-        <span class="gallery-item-caption">${g.name.replace(/\.[^/.]+$/, '')}</span>
+        <span class="gallery-item-caption">${g.name.replace(/\.[^/.]+$/,'')}</span>
       </div>
-      <button class="gallery-delete" onclick="deleteGalleryItem(${g.id})">✕</button>
+      <button class="gallery-delete" onclick="deleteGalleryItem('${g.id}','${g.imagePath||''}')">✕</button>
     </div>
   `).join('');
 }
@@ -1190,34 +925,35 @@ function selectFrom(who) {
   document.getElementById('btn-her').classList.toggle('selected', who === 'her');
   document.getElementById('btn-him').classList.toggle('selected', who === 'him');
 }
-function addNote() {
+async function addNote() {
   const text = document.getElementById('note-input').value.trim();
   if (!text) return;
-  loveNotes.unshift({
-    id: Date.now(),
-    from: currentFrom,
-    text,
-    time: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  });
-  localStorage.setItem('loveNotes', JSON.stringify(loveNotes));
-  document.getElementById('note-input').value = '';
-  renderNotes();
-  updateStats();
+  const btn = document.getElementById('note-send-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Sending…';
+  try {
+    await window.fbSaveNote({
+      from: currentFrom,
+      text,
+      time: new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    });
+    document.getElementById('note-input').value = '';
+    toast('Note sent with love 💌');
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.innerHTML = 'Send Note ♥';
 }
-function deleteNote(id) {
-  loveNotes = loveNotes.filter(n => n.id !== id);
-  localStorage.setItem('loveNotes', JSON.stringify(loveNotes));
-  renderNotes();
-  updateStats();
+async function deleteNote(id) {
+  if (!confirm('Delete this note?')) return;
+  await window.fbDeleteNote(id);
+  toast('Note deleted.');
 }
 function renderNotes() {
   const list = document.getElementById('notes-list');
   const empty = document.getElementById('notes-empty');
-  if (!loveNotes.length) {
-    list.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
+  if (!loveNotes.length) { list.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   list.innerHTML = loveNotes.map(n => `
     <div class="note-item">
@@ -1226,30 +962,108 @@ function renderNotes() {
         <span class="note-timestamp">${n.time}</span>
       </div>
       <p class="note-text">"${n.text}"</p>
-      <button class="note-delete" onclick="deleteNote(${n.id})">✕</button>
+      <button class="note-delete" onclick="deleteNote('${n.id}')">✕</button>
     </div>
   `).join('');
+  updateStats();
 }
 
 // ── FLOATING HEART ──
 function sendHeartbeat() {
   const h = document.querySelector('.floating-heart');
-  h.style.transform = 'scale(1.4)';
   h.style.background = '#a8382a';
-  setTimeout(() => {
-    h.style.transform = '';
-    h.style.background = '';
-  }, 300);
+  h.style.transform = 'scale(1.4)';
+  setTimeout(() => { h.style.background = ''; h.style.transform = ''; }, 300);
 }
 
-// Prompt start date if not set
-if (!localStorage.getItem('startDate')) {
-  const d = prompt('When did your relationship start? (e.g. 2023-06-15)\nFormat: YYYY-MM-DD');
-  if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
-    localStorage.setItem('startDate', d);
-    updateStats();
+// ── INIT after Firebase ready ──
+async function init() {
+  // Start date — shared via Firestore
+  startDate = await window.fbGetStartDate();
+  if (!startDate) {
+    const d = prompt('When did your relationship start?\nFormat: YYYY-MM-DD (e.g. 2023-06-15)');
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      await window.fbSetStartDate(d);
+      startDate = d;
+    }
   }
+  updateStats();
+
+  // Real-time listeners — data syncs for BOTH of you automatically
+  unsubAdventures = window.fbListenAdventures(data => {
+    adventures = data;
+    renderAdventures();
+  });
+  unsubGallery = window.fbListenGallery(data => {
+    galleryItems = data;
+    renderGallery();
+  });
+  unsubNotes = window.fbListenNotes(data => {
+    loveNotes = data;
+    renderNotes();
+  });
+
+  // Hide loading screen
+  setTimeout(() => {
+    document.getElementById('loading-overlay').classList.add('hidden');
+  }, 600);
+}
+
+// Wait for Firebase module to be ready
+if (window.firebaseReady) {
+  init();
+} else {
+  document.addEventListener('firebaseReady', init);
 }
 </script>
+
+<!--
+════════════════════════════════════════════════════════════
+  HOW TO SET UP FIREBASE (takes ~10 minutes, totally free)
+════════════════════════════════════════════════════════════
+
+STEP 1 — Create a Firebase project
+  → Go to https://console.firebase.google.com
+  → Click "Add project" → name it (e.g. "our-story") → Continue
+  → Disable Google Analytics if you want → Create project
+
+STEP 2 — Register your web app
+  → In the project dashboard, click the </> (Web) icon
+  → Give it a nickname (e.g. "our-story-web") → Register app
+  → You'll see a firebaseConfig object — COPY IT
+
+STEP 3 — Paste your config into this file
+  → Open index.html in a text editor
+  → Find the section at the top that says PASTE YOUR FIREBASE CONFIG HERE
+  → Replace each "PASTE_YOUR_..." value with your real values
+  → Save the file
+
+STEP 4 — Enable Firestore Database
+  → In Firebase console: Build → Firestore Database → Create database
+  → Choose "Start in test mode" → select a location → Enable
+  → (Test mode lets anyone read/write for 30 days — fine for a private site)
+
+STEP 5 — Enable Firebase Storage (for photos)
+  → In Firebase console: Build → Storage → Get started
+  → Start in test mode → Next → Done
+
+STEP 6 — Upload to GitHub Pages
+  → Go to your GitHub repo → upload this updated index.html
+  → Your site is now fully shared and real-time ♥
+
+OPTIONAL — Secure your database after testing
+  → In Firestore → Rules, replace the rules with:
+    rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        match /{document=**} {
+          allow read, write: if true;
+        }
+      }
+    }
+  → This keeps it open for the two of you without needing login.
+
+════════════════════════════════════════════════════════════
+-->
 </body>
 </html>
